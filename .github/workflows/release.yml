@@ -1,0 +1,126 @@
+name: Alice-App Release
+
+on:
+  repository_dispatch:
+    types: [release]
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.parse.outputs.version }}
+      channel: ${{ steps.parse.outputs.channel }}
+      major: ${{ steps.parse.outputs.major }}
+      skip: ${{ steps.patch-rule.outputs.skip }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: parse
+        run: |
+          if [ "${{ github.event_name }}" == "repository_dispatch" ]; then
+            TAG="${{ github.event.client_payload.tag }}"
+            CHANNEL="${{ github.event.client_payload.channel }}"
+          else
+            TAG="${GITHUB_REF#refs/tags/}"
+            # 从标签判断通道
+            if [[ "$TAG" == *-preview* ]]; then
+              CHANNEL="preview"
+            elif [[ "$TAG" == *-advanced* ]]; then
+              CHANNEL="advanced"
+            else
+              CHANNEL="standard"
+            fi
+          fi
+          # 去掉 ac/ 前缀
+          VERSION="${TAG#ac/}"
+          MAJOR="${VERSION%%.*}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "channel=$CHANNEL" >> $GITHUB_OUTPUT
+          echo "major=$MAJOR" >> $GITHUB_OUTPUT
+
+      # 补丁版本规则：标准版仅在 1.x ~ 2.x 构建
+      - id: patch-rule
+        run: |
+          VERSION="${{ steps.parse.outputs.version }}"
+          MAJOR="${{ steps.parse.outputs.major }}"
+          CHANNEL="${{ steps.parse.outputs.channel }}"
+          PATCH="${VERSION##*.}"
+
+          if [ "$CHANNEL" == "standard" ] && [ "$MAJOR" -gt 2 ] && [ "$PATCH" -gt 0 ]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "Patch releases not allowed for major > 2"
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+  build:
+    needs: validate
+    if: needs.validate.outputs.skip != 'true'
+    strategy:
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate.outputs.channel == 'preview' && 'preview' || 'main' }}
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'pnpm'
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm electron-builder -- --publish never
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload to R2
+        env:
+          R2_ACCESS_KEY: ${{ secrets.R2_ACCESS_KEY }}
+          R2_SECRET_KEY: ${{ secrets.R2_SECRET_KEY }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          CHANNEL=${{ needs.validate.outputs.channel }}
+          VERSION=${{ needs.validate.outputs.version }}
+          rclone copy dist/ :r2:alice-mod-releases/${CHANNEL}/v${VERSION}/ \
+            --s3-endpoint https://${CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.validate.outputs.version }}
+          files: |
+            dist/**/*.exe
+            dist/**/*.dmg
+            dist/**/*.AppImage
+            dist/**/*.yml
+            dist/**/*.blockmap
+          generate_release_notes: true
+
+  publish-manifest:
+    needs: [validate, build]
+    if: needs.validate.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Update latest.yml in R2
+        env:
+          R2_ACCESS_KEY: ${{ secrets.R2_ACCESS_KEY }}
+          R2_SECRET_KEY: ${{ secrets.R2_SECRET_KEY }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          CHANNEL=${{ needs.validate.outputs.channel }}
+          VERSION=${{ needs.validate.outputs.version }}
+          # 生成 latest.yml
+          echo "version: $VERSION" > latest.yml
+          echo "releaseDate: $(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> latest.yml
+          rclone copy latest.yml :r2:alice-mod-releases/${CHANNEL}/ \
+            --s3-endpoint https://${CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com
