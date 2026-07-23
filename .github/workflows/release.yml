@@ -41,23 +41,7 @@ jobs:
   build:
     needs: validate
     if: needs.validate.outputs.skip != 'true'
-    strategy:
-      matrix:
-        os: [windows-latest, macos-latest, ubuntu-latest]
-        include:
-          - os: windows-latest
-            platform: win
-            ext: exe
-            manifest: latest.yml
-          - os: macos-latest
-            platform: mac
-            ext: dmg
-            manifest: latest-mac.yml
-          - os: ubuntu-latest
-            platform: linux
-            ext: AppImage
-            manifest: latest-linux.yml
-    runs-on: ${{ matrix.os }}
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
         with:
@@ -72,7 +56,7 @@ jobs:
           node-version: 22
           cache: 'pnpm'
 
-      - run: pnpm install --frozen-lockfile
+      - run: pnpm install
 
       # electron-builder 输出目录为 release/
       - run: pnpm electron-builder -- --publish never
@@ -82,7 +66,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: release-${{ matrix.platform }}
+          name: release-win
           path: release/
           if-no-files-found: error
 
@@ -91,11 +75,10 @@ jobs:
     if: needs.validate.outputs.skip != 'true'
     runs-on: ubuntu-latest
     steps:
-      - name: Download all platform artifacts
+      - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: release-*
-          merge-multiple: true
+          name: release-win
 
       - name: Display release files
         run: ls -la
@@ -111,10 +94,8 @@ jobs:
           # 上传到 R2: {channel}/
           # 文件结构:
           #   latest.yml          ← Windows 更新清单 (electron-builder 生成，含 SHA512)
-          #   latest-mac.yml      ← macOS 更新清单
-          #   latest-linux.yml    ← Linux 更新清单
-          #   *.exe / *.dmg / *.AppImage  ← 安装包
-          #   *.blockmap          ← 差分更新数据 (同 minor 升级仅下载增量)
+          #   *.exe               ← 安装包
+          #   *.exe.blockmap      ← 差分更新数据 (同 minor 升级仅下载增量)
           rclone copy . :r2:alice-mod-releases/${CHANNEL}/ \
             --s3-endpoint https://${CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com
 
@@ -124,9 +105,6 @@ jobs:
           tag_name: v${{ needs.validate.outputs.version }}
           files: |
             *.exe
-            *.dmg
-            *.AppImage
-            *.zip
-            *.yml
-            *.blockmap
+            *.exe.blockmap
+            latest.yml
           generate_release_notes: true
