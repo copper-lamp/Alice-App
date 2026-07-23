@@ -14,6 +14,9 @@ on:
         required: true
         default: 'stable'
 
+permissions:
+  contents: write
+
 jobs:
   validate:
     runs-on: ubuntu-latest
@@ -117,7 +120,7 @@ jobs:
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ needs.validate.outputs.version }}
+          tag_name: ${{ needs.validate.outputs.version }}
           files: |
             *.exe
             *.exe.blockmap
