@@ -58,6 +58,9 @@ jobs:
 
       - run: pnpm install
 
+      # 编译所有 workspace 包（shared → agent-core）
+      - run: pnpm -r build
+
       # electron-builder 输出目录为 release/
       - run: pnpm electron-builder -- --publish never
         env:
