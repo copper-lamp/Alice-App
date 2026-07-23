@@ -3,6 +3,16 @@ name: Alice-App Release
 on:
   repository_dispatch:
     types: [release]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Version tag (e.g. ac/v0.0.14)'
+        required: true
+        default: 'ac/v0.0.14'
+      channel:
+        description: 'Release channel (stable/beta)'
+        required: true
+        default: 'stable'
 
 jobs:
   validate:
@@ -16,8 +26,8 @@ jobs:
 
       - id: parse
         run: |
-          TAG="${{ github.event.client_payload.tag }}"
-          CHANNEL="${{ github.event.client_payload.channel }}"
+          TAG="${{ github.event.client_payload.tag || inputs.tag }}"
+          CHANNEL="${{ github.event.client_payload.channel || inputs.channel }}"
           # 去掉 ac/ 前缀
           VERSION="${TAG#ac/}"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
