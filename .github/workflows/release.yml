@@ -56,7 +56,8 @@ jobs:
           node-version: 22
           cache: 'pnpm'
 
-      - run: pnpm install
+      # --no-frozen-lockfile: Alice-App 的 package.json（来自 agent-core）与主仓库根级 pnpm-lock.yaml 不一致
+      - run: pnpm install --no-frozen-lockfile
 
       # 编译所有 workspace 包（shared → agent-core）
       - run: pnpm -r build
