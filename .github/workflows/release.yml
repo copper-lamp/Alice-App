@@ -87,6 +87,7 @@ jobs:
         run: ls -la
 
       - name: Upload to R2 (channel-based)
+        continue-on-error: true
         env:
           R2_ACCESS_KEY: ${{ secrets.R2_ACCESS_KEY }}
           R2_SECRET_KEY: ${{ secrets.R2_SECRET_KEY }}
